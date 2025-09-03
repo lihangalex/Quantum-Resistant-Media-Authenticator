@@ -1,5 +1,7 @@
 # Quantum-Resistant Hashchain Media Notarizer
 
+![Beta](https://img.shields.io/badge/status-beta-orange?style=flat-square) ![Work in Progress](https://img.shields.io/badge/work%20in%20progress-⚠️-yellow?style=flat-square)
+
 A CLI-based system for signing and verifying audio/video files with quantum-resistant cryptographic signatures. Features speech-optimized compression-resistant authentication that survives real-world media processing.
 
 ## ✨ Key Features
