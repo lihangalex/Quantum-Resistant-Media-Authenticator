@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Media files (examples)
+example.mp4
+example_*.mp4
+example_*.wav
+example_*.aac
+example_*.ogg
+*.mp4.qrmn
+example_compressed_test.mp4
+example_embedded_signed.mp4
+
+# Test outputs
+test_results/
+output/
+
+# Keys (for security)
+*_private.json
+*_private.key
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Documentation build
+docs/_build/
