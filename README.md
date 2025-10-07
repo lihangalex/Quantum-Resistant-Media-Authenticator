@@ -8,7 +8,7 @@ Robust audio/video authentication system that survives compression using speech-
 - **🎙️ Speech-Optimized**: Robust features that survive compression  
 - **📹 Audio + Video**: Dual-modal authentication
 - **📦 Compression-Resistant**: Verified up to 60.9% file reduction
-- **🛡️ Tampering Detection**: Phase inversion (9.8%), silence (76%), noise (8%), video manipulation (~52%)
+- **🛡️ Tampering Detection**: Phase inversion (9.6%), silence (62.4%), noise (46.7%), video (51.0%) - all detected
 - **⚡ Two Modes**: Embedded (self-contained) or External (.qrmn file)
 
 ---
@@ -93,10 +93,10 @@ This follows industry best practices from academic research on robust media hash
 
 | Attack Type | Result | Similarity |
 |-------------|--------|------------|
-| **Phase Inversion** | ✅ Detected | 9.8% |
-| Silence Injection | ✅ Detected | 76.2% |
-| Noise Replacement | ✅ Detected | 8.2% |
-| Video Tampering | ✅ Detected | ~52% |
+| **Phase Inversion** | ✅ Detected | 9.6% |
+| **Silence Injection** | ✅ Detected | 62.4% |
+| **Noise Replacement** | ✅ Detected | 46.7% |
+| **Video Tampering** | ✅ Detected | 51.0% |
 
 ### Compression Resistance
 

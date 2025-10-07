@@ -4,10 +4,12 @@
 import sys
 import numpy as np
 from pathlib import Path
+import cv2
 
 sys.path.insert(0, 'src')
 
 from perceptual_hash import PerceptualHasher
+from video_perceptual_hash import VideoPerceptualHasher
 from canonicalization import MediaCanonicalizer
 from enhanced_verification import EnhancedVerifier
 
@@ -34,7 +36,48 @@ for window in windows:
     all_stored_hashes.append(hash_val)
 
 print("\n" + "="*70)
-print("TEST 1: Phase Inversion - Multiple Windows")
+print("TEST 1: Silence Injection")
+print("="*70)
+
+# Replace windows with silence
+silence_window = np.zeros_like(windows[0])
+silence_hash = hasher.compute_perceptual_hash(silence_window, sr)
+silence_similarities = []
+
+for i in range(0, min(10, len(windows))):
+    sim = hasher.hash_similarity(all_stored_hashes[i], silence_hash)
+    silence_similarities.append(sim)
+    if i < 3:  # Show first 3
+        print(f"Window {i}: Original vs Silence = {sim*100:5.1f}%")
+
+avg_silence = np.mean(silence_similarities)
+print(f"\n📊 Silence Injection:")
+print(f"  Average: {avg_silence*100:.1f}%")
+print(f"  Detected (< 80%)? {'✅ YES' if avg_silence < 0.80 else '❌ NO'}")
+
+print("\n" + "="*70)
+print("TEST 2: Random Noise Replacement")
+print("="*70)
+
+# Replace windows with random noise
+np.random.seed(42)
+noise_window = np.random.randn(len(windows[0])) * 0.1
+noise_hash = hasher.compute_perceptual_hash(noise_window, sr)
+noise_similarities = []
+
+for i in range(0, min(10, len(windows))):
+    sim = hasher.hash_similarity(all_stored_hashes[i], noise_hash)
+    noise_similarities.append(sim)
+    if i < 3:  # Show first 3
+        print(f"Window {i}: Original vs Noise = {sim*100:5.1f}%")
+
+avg_noise = np.mean(noise_similarities)
+print(f"\n📊 Noise Replacement:")
+print(f"  Average: {avg_noise*100:.1f}%")
+print(f"  Detected (< 80%)? {'✅ YES' if avg_noise < 0.80 else '❌ NO'}")
+
+print("\n" + "="*70)
+print("TEST 3: Phase Inversion - Multiple Windows")
 print("="*70)
 
 phase_inv_similarities = []
@@ -57,7 +100,7 @@ print(f"  Range: {min_inv*100:.1f}% - {max_inv*100:.1f}%")
 print(f"  All < 80%? {'✅ YES' if max_inv < 0.80 else '❌ NO'}")
 
 print("\n" + "="*70)
-print("TEST 2: Splicing Detection - Multiple Attack Positions")
+print("TEST 4: Splicing Detection - Multiple Attack Positions")
 print("="*70)
 
 # Test splicing at different positions
@@ -105,7 +148,7 @@ print(f"  Detected: {detected}/{len(splice_results)} attacks")
 print(f"  Success rate: {detected/len(splice_results)*100:.0f}%")
 
 print("\n" + "="*70)
-print("TEST 3: Different Noise Levels (Realistic)")
+print("TEST 5: Different Noise Levels (Realistic)")
 print("="*70)
 
 noise_snrs = [30, 20, 15, 10, 5]  # dB
@@ -134,7 +177,7 @@ for snr_db in noise_snrs:
     print(f"  Pass: {'✅' if result['result'] == 'GREEN' else '❌'}")
 
 print("\n" + "="*70)
-print("TEST 4: Subtle Splicing (Single Window)")
+print("TEST 6: Subtle Splicing (Single Window)")
 print("="*70)
 
 # This is harder - replace just 1 window
@@ -162,7 +205,7 @@ print("\n📊 Single-Window Splice Detection:")
 print(f"  Success rate: {sum(single_splice_results)}/{len(single_splice_results)}")
 
 print("\n" + "="*70)
-print("TEST 5: False Positive Rate (Authentic Audio)")
+print("TEST 7: False Positive Rate (Authentic Audio)")
 print("="*70)
 
 # Test with slightly different processing
@@ -186,13 +229,65 @@ print(f"  Passed: {sum(false_positive_tests)}/{len(false_positive_tests)}")
 print(f"  False positive rate: {fp_rate*100:.1f}%")
 
 print("\n" + "="*70)
+print("TEST 8: Video Tampering Detection")
+print("="*70)
+
+video_hasher = VideoPerceptualHasher(keyframe_interval=2.0)
+
+# Extract one real frame from video
+cap = cv2.VideoCapture('example.mp4')
+ret, real_frame = cap.read()
+cap.release()
+
+if ret:
+    # Compute hash of real frame
+    real_hash = video_hasher.compute_perceptual_hash(real_frame)
+    
+    # Create tampered frames
+    black_frame = np.zeros_like(real_frame)
+    white_frame = np.ones_like(real_frame) * 255
+    noise_frame = np.random.randint(0, 256, real_frame.shape, dtype=np.uint8)
+    
+    # Compute hashes
+    black_hash = video_hasher.compute_perceptual_hash(black_frame)
+    white_hash = video_hasher.compute_perceptual_hash(white_frame)
+    noise_hash = video_hasher.compute_perceptual_hash(noise_frame)
+    
+    # Compare
+    black_sim = video_hasher.hash_similarity(real_hash, black_hash)
+    white_sim = video_hasher.hash_similarity(real_hash, white_hash)
+    noise_sim = video_hasher.hash_similarity(real_hash, noise_hash)
+    
+    print(f"Real frame vs Black: {black_sim*100:5.1f}%")
+    print(f"Real frame vs White: {white_sim*100:5.1f}%")
+    print(f"Real frame vs Noise: {noise_sim*100:5.1f}%")
+    
+    avg_video_tamper = np.mean([black_sim, white_sim, noise_sim])
+    print(f"\n📊 Video Tampering:")
+    print(f"  Average: {avg_video_tamper*100:.1f}%")
+    print(f"  Detected (< 75%)? {'✅ YES' if avg_video_tamper < 0.75 else '❌ NO'}")
+else:
+    print("⚠️ Could not read video frame")
+    avg_video_tamper = None
+
+print("\n" + "="*70)
 print("HONEST ASSESSMENT")
 print("="*70)
 
 print("\n✅ What ACTUALLY Works Well:")
-print(f"  • Phase inversion: {avg_inv*100:.1f}% avg similarity (threshold 80%)")
+print(f"  • Silence injection: {avg_silence*100:.1f}% similarity (threshold 80%)")
+print(f"    - Detection: {'✅ PASS' if avg_silence < 0.80 else '❌ FAIL'}")
+
+print(f"\n  • Noise replacement: {avg_noise*100:.1f}% similarity (threshold 80%)")
+print(f"    - Detection: {'✅ PASS' if avg_noise < 0.80 else '❌ FAIL'}")
+
+print(f"\n  • Phase inversion: {avg_inv*100:.1f}% avg similarity (threshold 80%)")
 print(f"    - Consistent across windows: ±{std_inv*100:.1f}%")
 print(f"    - Detection rate: 100% (all < 80%)")
+
+if avg_video_tamper is not None:
+    print(f"\n  • Video tampering: {avg_video_tamper*100:.1f}% avg similarity (threshold 75%)")
+    print(f"    - Detection: {'✅ PASS' if avg_video_tamper < 0.75 else '❌ FAIL'}")
 
 print(f"\n  • Multi-window splicing: {detected}/{len(splice_results)} detected")
 print(f"    - Works when 3+ consecutive windows replaced")
