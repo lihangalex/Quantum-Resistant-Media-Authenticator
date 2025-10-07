@@ -3,7 +3,6 @@
 import numpy as np
 import librosa
 from typing import List, Tuple, Dict, Any
-import hashlib
 import warnings
 
 
@@ -11,7 +10,8 @@ class PerceptualHasher:
     """Computes robust perceptual hashes from audio windows, optimized for speech authentication."""
     
     def __init__(self, n_mfcc: int = 13, n_fft: int = 2048, hop_length: int = 512, 
-                 speech_optimized: bool = True):
+                 speech_optimized: bool = True, polarity_threshold: float = 0.60,
+                 polarity_penalty: float = 0.15):
         """Initialize hasher with spectral analysis parameters.
         
         Args:
@@ -19,11 +19,18 @@ class PerceptualHasher:
             n_fft: FFT window size
             hop_length: Hop length for spectral analysis
             speech_optimized: Enable speech-specific robust features
+            polarity_threshold: Threshold for polarity match (0.0-1.0). Below this,
+                               audio is considered phase-inverted. Default 0.60.
+            polarity_penalty: Penalty factor applied to inverted audio (0.0-1.0).
+                             Lower = more aggressive rejection. Default 0.15.
         """
         self.n_mfcc = n_mfcc
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.speech_optimized = speech_optimized
+        self.polarity_threshold = polarity_threshold
+        self.polarity_penalty = polarity_penalty
+        self.polarity_bits = 32  # Number of bits dedicated to polarity features
     
     def extract_features(self, audio_window: np.ndarray, sr: int) -> np.ndarray:
         """Extract robust perceptual features from audio window."""
@@ -51,7 +58,8 @@ class PerceptualHasher:
             else:
                 f0_stats = [0.0] * 5
             features_list.extend(f0_stats)
-        except:
+        except Exception:
+            # F0 extraction failed (e.g., very short window, silence)
             features_list.extend([0.0] * 5)
         
         # 2. Formant-like features using MFCC (vocal tract characteristics)
@@ -114,6 +122,69 @@ class PerceptualHasher:
         
         return np.array(features_list)
     
+    def _extract_polarity_features(self, audio_window: np.ndarray, sr: int) -> np.ndarray:
+        """Extract phase-sensitive polarity features to detect phase inversion.
+        
+        These features are compression-resistant but flip with phase inversion.
+        Returns 32 features (4 bytes when quantized) that capture waveform polarity.
+        Higher feature count gives polarity adequate weight in final hash.
+        """
+        features = []
+        
+        # 1. Waveform mean (sign flips with inversion)
+        waveform_mean = np.mean(audio_window)
+        features.extend([waveform_mean] * 4)  # Replicate for weight
+        
+        # 2. Temporal skewness (asymmetry flips with inversion)
+        if len(audio_window) > 2:
+            skewness = np.mean(((audio_window - np.mean(audio_window)) / (np.std(audio_window) + 1e-8)) ** 3)
+        else:
+            skewness = 0.0
+        features.extend([skewness] * 4)  # Replicate for weight
+        
+        # 3. First-moment weighted features (sign-sensitive)
+        time_weights = np.linspace(-1, 1, len(audio_window))
+        weighted_mean = np.mean(audio_window * time_weights)
+        features.extend([weighted_mean] * 4)
+        
+        # 4. Sign of peak amplitude
+        max_amp = np.max(np.abs(audio_window))
+        if max_amp > 0:
+            peak_sign = 1.0 if audio_window[np.argmax(np.abs(audio_window))] > 0 else -1.0
+        else:
+            peak_sign = 0.0
+        features.extend([peak_sign] * 2)
+        
+        # 5. Zero-crossing pattern features (directional)
+        signs = np.sign(audio_window)
+        sign_changes = np.diff(signs)
+        pos_to_neg = np.sum(sign_changes < 0)
+        neg_to_pos = np.sum(sign_changes > 0)
+        crossing_asymmetry = (pos_to_neg - neg_to_pos) / (len(audio_window) + 1)
+        features.extend([crossing_asymmetry] * 4)
+        
+        # 6. Front-weighted average (captures initial phase)
+        window_fade = np.exp(-np.arange(len(audio_window)) / (len(audio_window) * 0.1))
+        front_weighted = np.sum(audio_window * window_fade) / np.sum(window_fade)
+        features.extend([front_weighted] * 4)
+        
+        # 7. Energy-weighted polarity
+        energy = audio_window ** 2
+        energy_weighted_sign = np.sum(audio_window * energy) / (np.sum(energy) + 1e-8)
+        features.extend([energy_weighted_sign] * 4)
+        
+        # 8. Back-weighted average (captures final phase)
+        back_fade = np.exp(-np.arange(len(audio_window))[::-1] / (len(audio_window) * 0.1))
+        back_weighted = np.sum(audio_window * back_fade) / np.sum(back_fade)
+        features.extend([back_weighted] * 4)
+        
+        # 9. Quartile-based signed features
+        q1_mask = (np.arange(len(audio_window)) < len(audio_window) // 4)
+        q1_mean = np.mean(audio_window[q1_mask]) if np.any(q1_mask) else 0.0
+        features.extend([q1_mean] * 2)
+        
+        return np.array(features)
+    
     def _extract_music_features(self, audio_window: np.ndarray, sr: int) -> np.ndarray:
         """Extract music-optimized robust features (original approach)."""
         # Extract MFCC features (robust to compression)
@@ -161,38 +232,135 @@ class PerceptualHasher:
         return feature_stats
     
     def compute_perceptual_hash(self, audio_window: np.ndarray, sr: int) -> bytes:
-        """Compute perceptual hash from audio window."""
-        # Extract features
+        """Compute perceptual hash from audio window.
+        
+        Returns the binary features directly (not SHA-256 hashed).
+        This allows proper Hamming distance comparison for similarity.
+        Includes both compression-resistant features and phase-sensitive polarity features.
+        """
+        # Extract main perceptual features (phase-invariant)
         features = self.extract_features(audio_window, sr)
         
-        # Quantize features for robustness
+        # Extract polarity features (phase-sensitive) to detect inversions
+        polarity_features = self._extract_polarity_features(audio_window, sr)
+        
+        # Quantize main features for robustness
         # Use median as threshold for binary quantization
         median_val = np.median(features)
         binary_features = (features > median_val).astype(np.uint8)
         
-        # Create hash from binary features
-        feature_bytes = binary_features.tobytes()
+        # Quantize polarity features separately (sign-based)
+        # These capture whether features are positive or negative (flips with inversion)
+        binary_polarity = (polarity_features > 0).astype(np.uint8)
         
-        # Use SHA-256 for cryptographic strength
-        hash_obj = hashlib.sha256(feature_bytes)
-        return hash_obj.digest()
+        # Combine: main features + polarity signature
+        combined_features = np.concatenate([binary_features, binary_polarity])
+        
+        # Pack bits into bytes for storage efficiency
+        packed_bits = np.packbits(combined_features)
+        
+        return packed_bits.tobytes()
     
     def compute_window_hashes(self, windows: List[np.ndarray], sr: int) -> List[bytes]:
         """Compute perceptual hashes for all windows."""
         return [self.compute_perceptual_hash(window, sr) for window in windows]
     
     def hash_similarity(self, hash1: bytes, hash2: bytes) -> float:
-        """Compute similarity between two hashes (Hamming distance based)."""
-        # Convert to binary arrays for comparison
-        arr1 = np.frombuffer(hash1, dtype=np.uint8)
-        arr2 = np.frombuffer(hash2, dtype=np.uint8)
+        """Compute similarity between two hashes with two-stage polarity check.
         
-        # Compute Hamming distance
+        Stage 1: Fast polarity check on dedicated polarity bits
+                 If polarity mismatch detected → aggressive penalty
+        Stage 2: Full perceptual hash comparison using Hamming distance
+        
+        This approach dramatically improves phase inversion detection while
+        maintaining compression resistance.
+        
+        Args:
+            hash1: First perceptual hash (bytes)
+            hash2: Second perceptual hash (bytes)
+            
+        Returns:
+            Similarity score 0.0-1.0, where:
+            - 1.0 = identical
+            - 0.85-0.95 = same content, compressed
+            - 0.60-0.80 = possibly authentic, heavily modified
+            - 0.0-0.60 = tampered or inverted
+        """
+        # Unpack bytes back to bits
+        arr1 = np.unpackbits(np.frombuffer(hash1, dtype=np.uint8))
+        arr2 = np.unpackbits(np.frombuffer(hash2, dtype=np.uint8))
+        
+        # Ensure arrays have same length
+        if len(arr1) != len(arr2):
+            min_len = min(len(arr1), len(arr2))
+            arr1 = arr1[:min_len]
+            arr2 = arr2[:min_len]
+        
+        # Stage 1: Polarity check (last N bits are polarity features)
+        # The polarity bits are appended last in compute_perceptual_hash
+        if len(arr1) >= self.polarity_bits:
+            polarity1 = arr1[-self.polarity_bits:]
+            polarity2 = arr2[-self.polarity_bits:]
+            
+            # Check how many polarity bits match
+            polarity_matches = np.sum(polarity1 == polarity2)
+            polarity_similarity = polarity_matches / self.polarity_bits
+            
+            # If polarity is very different, likely phase-inverted
+            if polarity_similarity < self.polarity_threshold:
+                # Apply aggressive penalty to inverted audio
+                # This drops similarity from ~65% to ~5-10%
+                full_hamming_dist = np.sum(arr1 != arr2)
+                full_similarity = 1.0 - (full_hamming_dist / len(arr1))
+                penalized_similarity = full_similarity * self.polarity_penalty
+                
+                return penalized_similarity
+        
+        # Stage 2: Full perceptual hash comparison
+        # Used when polarity check passes (likely authentic or compressed)
         hamming_dist = np.sum(arr1 != arr2)
-        max_dist = len(arr1) * 8  # 8 bits per byte
+        similarity = 1.0 - (hamming_dist / len(arr1))
         
-        # Return similarity (1 - normalized hamming distance)
-        return 1.0 - (hamming_dist / max_dist)
+        return similarity
+    
+    def analyze_polarity_mismatch(self, hash1: bytes, hash2: bytes) -> Dict[str, Any]:
+        """Detailed polarity analysis for debugging and reporting.
+        
+        Returns dict with:
+            - polarity_similarity: float (0.0-1.0)
+            - is_likely_inverted: bool
+            - polarity_bits_flipped: int
+            - full_similarity: float (without penalty)
+            - penalized_similarity: float (with penalty if inverted)
+        """
+        arr1 = np.unpackbits(np.frombuffer(hash1, dtype=np.uint8))
+        arr2 = np.unpackbits(np.frombuffer(hash2, dtype=np.uint8))
+        
+        min_len = min(len(arr1), len(arr2))
+        arr1 = arr1[:min_len]
+        arr2 = arr2[:min_len]
+        
+        result = {
+            'polarity_similarity': 1.0,
+            'is_likely_inverted': False,
+            'polarity_bits_flipped': 0,
+            'full_similarity': 1.0 - (np.sum(arr1 != arr2) / len(arr1)),
+            'penalized_similarity': None
+        }
+        
+        if len(arr1) >= self.polarity_bits:
+            polarity1 = arr1[-self.polarity_bits:]
+            polarity2 = arr2[-self.polarity_bits:]
+            
+            polarity_matches = np.sum(polarity1 == polarity2)
+            result['polarity_similarity'] = polarity_matches / self.polarity_bits
+            result['polarity_bits_flipped'] = self.polarity_bits - polarity_matches
+            result['is_likely_inverted'] = result['polarity_similarity'] < self.polarity_threshold
+            
+            if result['is_likely_inverted']:
+                result['penalized_similarity'] = result['full_similarity'] * self.polarity_penalty
+        
+        return result
     
     def classify_similarity(self, similarity: float, content_type: str = "speech") -> Dict[str, Any]:
         """Classify similarity level based on content type and thresholds."""

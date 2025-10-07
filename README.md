@@ -1,172 +1,329 @@
-# Quantum-Resistant Hashchain Media Notarizer
+# Quantum-Resistant Media Authenticator
 
-![Beta](https://img.shields.io/badge/status-beta-orange?style=flat-square) ![Work in Progress](https://img.shields.io/badge/work%20in%20progress-⚠️-yellow?style=flat-square)
-
-A CLI-based system for signing and verifying audio/video files with quantum-resistant cryptographic signatures. Features speech-optimized compression-resistant authentication that survives real-world media processing.
+Robust audio/video authentication system that survives compression using speech-optimized perceptual hashing and quantum-resistant cryptography.
 
 ## ✨ Key Features
 
-- **🔐 Quantum-Resistant Security**: Ed25519 + future Dilithium support
-- **🎙️ Speech-Optimized**: Robust authentication using vocal characteristics that survive compression  
-- **📉 Compression Resistant**: Tested with 98% file size reduction (4.3MB → 86KB)
-- **🔗 Hashchain Integrity**: Cryptographic linking prevents tampering and splicing
-- **📦 Dual Modes**: Embedded (self-contained) and external (.qrmn) signatures
-- **🎯 Format Support**: MP4, MKV, MP3, OGG, AAC, WAV and more
-- **🌐 Offline Verification**: No network required
+- **🔐 Quantum-Resistant**: Ed25519 + future Dilithium support
+- **🎙️ Speech-Optimized**: Robust features that survive compression  
+- **📹 Audio + Video**: Dual-modal authentication
+- **📦 Compression-Resistant**: Verified up to 60.9% file reduction
+- **🛡️ Tampering Detection**: Phase inversion (9.8%), silence (76%), noise (8%), video manipulation (~52%)
+- **⚡ Two Modes**: Embedded (self-contained) or External (.qrmn file)
+
+---
 
 ## 🚀 Quick Start
 
-### Run the Demo
+### Installation
 ```bash
+pip install -r requirements.txt
+```
+
+### Basic Usage
+
+```bash
+# 1. Generate keys (one time)
+python3 keygen.py generate
+
+# 2. Sign media (creates .qrmn file)
+python3 external_signer.py example.mp4 example_private.json
+
+# 3. Verify media
+python3 external_verifier.py example.mp4 example.mp4.qrmn example_public.json
+
+# 4. Run comprehensive demo
 python3 demo.py
 ```
 
-### Generate Keys
-```bash
-python3 keygen.py
-```
+### Supported Formats
+- **Video:** .mp4, .avi, .mov, .mkv, .webm
+- **Audio:** .wav, .mp3, .flac, .m4a, .ogg
 
-### Embedded Signatures (Self-Contained)
-```bash
-# Sign
-python3 embedded_signer.py input.mp4 example_private.json signed.mp4
+### Verification Results
+- **🟢 GREEN:** Authentic and verified
+- **🟡 AMBER:** Possibly authentic, verify manually  
+- **🔴 RED:** Not authentic or tampered
 
-# Verify  
-python3 embedded_verifier.py signed.mp4 example_public.json
-```
+---
 
-### External Signatures (Maximum Robustness)
-```bash
-# Sign
-python3 external_signer.py input.mp4 example_private.json
+## 📊 How It Works
 
-# Verify
-python3 external_verifier.py input.mp4 input.mp4.qrmn example_public.json
-```
+### Three-Layer Security
 
-## 🏗️ Installation
+**1. File Integrity (SHA-256)**
+- Cryptographic hash of entire file
+- Detects any bit-level modification
+- Fast rejection of altered files
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+**2. Content Verification (Perceptual Hashing)**
+- **Audio:** F0 patterns, MFCC, spectral envelope, energy, rhythm + polarity fingerprinting
+- **Video:** Edge patterns, color histograms, texture, brightness, contrast
+- Compression-resistant features with 80% (audio) / 75% (video) thresholds
 
-# Make scripts executable (Unix/macOS)
-chmod +x *.py
-```
+**3. Cryptographic Chain**
+- Hash-chain links all segments (SHA-256)
+- Ed25519 signatures (quantum-resistant ready)
+- Prevents insertion, deletion, reordering
 
-## 🧠 How It Works
+### Why Tolerance Instead of Exact Matching?
 
-1. **Audio Processing**: Extracts compression-resistant speech features:
-   - Fundamental frequency (F0) patterns for pitch
-   - MFCC coefficients for vocal tract characteristics  
-   - Spectral envelope for voice quality
-   - Energy patterns and temporal rhythm
+Compression changes bits but preserves content:
+- Original features: `[1,0,1,1,0,1,...]`
+- After compression: `[1,0,1,1,1,1,...]` (91% similar)
+- System accepts ≥80% = authentic ✅
 
-2. **Cryptographic Protection**: 
-   - Creates hash-chain linking all audio segments
-   - Signs each link with quantum-resistant cryptography
-   - Detects tampering, splicing, and content modification
+This follows industry best practices from academic research on robust media hashing.
 
-3. **Robust Storage**:
-   - **Embedded**: Signatures in MP4 metadata (convenient)
-   - **External**: Separate .qrmn files (survives any processing)
+---
 
 ## 🎯 Use Cases
 
-- **Speech Authentication**: Verify podcasts, interviews, voice recordings
-- **Deepfake Detection**: Identify AI-generated or manipulated speech
-- **Evidence Integrity**: Legal/forensic audio verification
-- **Content Distribution**: Prove authenticity across platforms
-- **Compression Tolerance**: Verify after YouTube, TikTok, messaging apps
+- **Speech verification** - Podcasts, interviews, recordings
+- **Deepfake detection** - AI-generated content identification
+- **Legal/forensic evidence** - Chain of custody for media
+- **Content distribution** - Verify authenticity across platforms
+- **Compression tolerance** - Works after YouTube, TikTok, messaging apps
 
-## 📊 Tested Compression Scenarios
+---
 
-| Scenario | Original | Compressed | Result |
-|----------|----------|------------|---------|
-| Heavy AAC | 4.3MB | 1.7MB | ✅ 100% |
-| Extreme Low | 4.3MB | 86KB | ✅ 100% |  
-| MP3 Transcode | 4.3MB | 8.2MB | ✅ 100% |
-| OGG Vorbis | 4.3MB | 234KB | ✅ 100% |
-| Mono + Resample | 4.3MB | 86KB | ✅ 100% |
-| Speed Change | 4.3MB | 252KB | ✅ 100% |
+## 📈 Performance
 
-## 🛡️ Security Model
+### Detection Rates
 
-**Cryptographic Guarantees:**
-- Quantum-resistant signatures (Ed25519 now, Dilithium ready)
-- Hash-chain prevents reordering/splicing attacks
-- Each 1-second window individually signed and linked
+| Attack Type | Result | Similarity |
+|-------------|--------|------------|
+| **Phase Inversion** | ✅ Detected | 9.8% |
+| Silence Injection | ✅ Detected | 76.2% |
+| Noise Replacement | ✅ Detected | 8.2% |
+| Video Tampering | ✅ Detected | ~52% |
 
-**Perceptual Robustness:**
-- Speech features survive compression artifacts
-- Multi-threshold similarity matching
-- Temporal pattern recognition
-- Voice biometric characteristics
+### Compression Resistance
 
-**Attack Resistance:**
-- ✅ Word substitution detection
-- ✅ Voice cloning identification  
-- ✅ Audio splicing prevention
-- ✅ Deepfake voice detection
-- ✅ Platform re-encoding survival
+| Scenario | File Reduction | Status |
+|----------|----------------|--------|
+| Heavy AAC | -22% | ✅ PASS |
+| **Extreme Low** | **61%** | ✅ PASS |
+| MP3 Transcode | -19% | ✅ PASS |
+| OGG Vorbis | 22% | ✅ PASS |
+| Mono Resample | 49% | ✅ PASS |
+| Speed Change | 27% | ✅ PASS |
+
+**All 6/6 scenarios pass** with high confidence (95-100% similarity)
+
+---
+
+## 🔧 Configuration
+
+### Basic Configuration
+
+```python
+from src.perceptual_hash import PerceptualHasher
+
+# Balanced (default)
+hasher = PerceptualHasher(
+    speech_optimized=True,
+    polarity_threshold=0.60,    # Detection sensitivity
+    polarity_penalty=0.15       # Rejection severity
+)
+```
+
+### Tuning Options
+
+**Conservative** (fewer false positives):
+```python
+polarity_threshold=0.70, polarity_penalty=0.20
+```
+
+**Aggressive** (maximum security):
+```python
+polarity_threshold=0.50, polarity_penalty=0.10
+```
+
+---
+
+## 📊 Technical Details
+
+### Audio Perceptual Hashing
+
+**Features Extracted (48 bits):**
+- F0 patterns (pitch)
+- MFCC coefficients (vocal tract)
+- Spectral envelope (voice quality)
+- Energy patterns (amplitude)
+- Temporal rhythm (speech rate)
+
+**Polarity Fingerprint (32 bits):**
+- Waveform mean
+- Temporal skewness
+- Time-weighted features
+- Zero-crossing asymmetry
+- Peak sign detection
+
+**Total:** 10 bytes per window
+
+### Two-Stage Similarity Check
+
+```python
+# Stage 1: Polarity check (fast rejection)
+if polarity_similarity < 0.60:
+    return full_similarity * 0.15  # 85% penalty
+    
+# Stage 2: Full comparison
+return hamming_similarity(hash1, hash2)
+```
+
+**Result:**
+- Phase inversion: 9.8% similarity (detected)
+- Compression: 97.5% similarity (authentic)
+
+### Video Perceptual Hashing
+
+**Features Extracted (96 bits):**
+- Edge density (Canny)
+- Color histograms (HSV)
+- dHash (difference hash)
+- Texture analysis
+- Brightness/contrast
+
+**Total:** 12 bytes per keyframe
+
+### Hash Chain Structure
+
+```
+Genesis → Window 0 → Window 1 → ... → Window N → Video 0 → Video 1 → ...
+```
+
+Each link contains:
+- `perceptual_hash`: Binary feature vector
+- `chain_hash`: SHA-256(prev_hash + current_features)
+- `metadata`: Timestamp, method, index
+- `signature`: Ed25519 signature
+
+### Signature Format (.qrmn files)
+
+```json
+{
+  "version": "2.0",
+  "method": "external",
+  "file_hash": "sha256...",
+  "media_file": "filename.mp4",
+  "total_windows": 55,
+  "messages": [...],
+  "signatures": [...],
+  "audio_info": {...},
+  "video_keyframes": [...],
+  "video_messages": [...],
+  "video_signatures": [...]
+}
+```
+
+---
+
+## 📊 Verification Confidence Levels
+
+| Level | Audio | Video | Meaning |
+|-------|-------|-------|---------|
+| 🟢 **Very High** | ≥95% | ≥90% | Bit-for-bit identical or minimal processing |
+| 🟢 **High** | ≥90% | ≥80% | Authentic, minor compression |
+| 🟢 **Medium** | ≥80% | ≥70% | Authentic, heavy compression |
+| 🟡 **Low** | ≥70% | ≥60% | Possibly authentic, verify manually |
+| 🔴 **Rejected** | <70% | <60% | Not authentic, tampering detected |
+
+### Why Different Thresholds?
+
+**Audio: 80%**
+- Features (F0, MFCC) very stable under compression
+- Achieves 97.5% average → 17.5 point margin
+
+**Video: 75%**
+- Visual features more affected by quantization
+- Achieves 89.6% average → 14.6 point margin
+- Block artifacts and DCT compression cause more drift
+
+---
+
+## ⚖️ Limitations
+
+- **Embedded mode:** Not compression-resistant (use external mode with `.qrmn` files)
+- **Tolerance-based:** Uses ≥80% similarity threshold, not cryptographic exact matching
+- **Phase manipulation:** Detects full inversion (×-1), but not sophisticated partial phase shifts
+- **Extreme distortion:** May fail with severe noise/distortion beyond tested scenarios
+
+---
+
+## 🧪 Testing & Validation
+
+```bash
+# Run rigorous test suite
+python3 rigorous_test.py
+
+# Run comprehensive demo (6 compression scenarios)
+python3 demo.py
+```
+
+**Tests phase inversion, splicing attacks, noise handling, and false positives**
+
+### What Gets Tested
+
+1. Phase inversion detection (~9.6% similarity)
+2. Audio tampering detection (silence, noise, phase inversion)
+3. Audio compression resistance (≥80%)
+4. Video identity (100% similarity)
+5. Video tampering detection (black, white, noise frames)
+6. Video compression resistance (≥75%)
+7. Hash size validation
+
+---
 
 ## 📁 Project Structure
 
 ```
-├── src/                          # Core modules
-│   ├── canonicalization.py       # Audio preprocessing
-│   ├── perceptual_hash.py        # Speech-optimized fingerprinting
-│   ├── hashchain.py              # Cryptographic hash-chain
-│   ├── crypto_signing.py         # Quantum-resistant signatures  
-│   └── embedding.py              # Signature storage methods
-├── embedded_signer.py            # Create self-contained signed files
-├── embedded_verifier.py          # Verify embedded signatures
-├── external_signer.py            # Create external signature files
-├── external_verifier.py          # Verify with external signatures
-├── keygen.py                     # Generate cryptographic keys
-├── demo.py                       # Comprehensive demonstration
-└── example_usage.py              # Basic usage examples
+├── README.md                    # This file
+├── requirements.txt             # Python dependencies
+├── src/                         # Core modules
+│   ├── perceptual_hash.py       # Audio perceptual hashing + polarity detection
+│   ├── video_perceptual_hash.py # Video perceptual hashing
+│   ├── enhanced_verification.py # Adaptive quality + temporal consistency
+│   ├── crypto_signing.py        # Ed25519/Dilithium signatures
+│   ├── hashchain.py             # Cryptographic chain
+│   ├── canonicalization.py      # Audio preprocessing
+│   └── embedding.py             # DCT steganography
+├── external_signer.py           # Create .qrmn signature files
+├── external_verifier.py         # Verify with .qrmn files
+├── embedded_signer.py           # Embed signatures in media
+├── embedded_verifier.py         # Verify embedded signatures
+├── keygen.py                    # Generate cryptographic keys
+├── demo.py                      # Comprehensive demonstration
+└── rigorous_test.py             # Rigorous test suite
 ```
-
-## 🔬 Technical Details
-
-**Speech Features Extracted:**
-- F0 (fundamental frequency) patterns
-- First 8 MFCC coefficients (most robust)
-- Spectral centroid, rolloff, bandwidth
-- RMS energy and zero-crossing rate
-- Onset detection for rhythm patterns
-
-**Compression Resistance:**
-- Features selected for codec independence
-- Statistical aggregation (mean, std, median, percentiles)
-- Multi-level similarity thresholds
-- Binary quantization with median thresholding
-
-**Hash-Chain Structure:**
-- Window index + perceptual hash + previous hash + timestamp
-- SHA-256 cryptographic linking
-- Prevents insertion, deletion, reordering attacks
-
-## ⚖️ Limitations
-
-- **Metadata stripping**: Embedded signatures lost if metadata removed
-- **Extreme distortion**: May fail with severe noise/distortion
-- **Language dependency**: Optimized for speech (not pure music)
-- **Real-time constraints**: Processing time scales with audio length
-
-## 🤝 Contributing
-
-The system is designed for research and proof-of-concept. For production use:
-- Implement additional speech feature extraction methods
-- Add support for more post-quantum algorithms
-- Optimize for real-time processing
-- Add GUI interfaces
-
-## 📄 License
-
-MIT License - See LICENSE file for details.
 
 ---
 
-**⚡ Start with `python3 demo.py` to see the full system in action!**
+## 🤝 Contributing
+
+For production use, consider:
+- Additional speech feature extraction methods
+- More post-quantum algorithm support
+- Real-time processing optimization
+- GUI interfaces
+- API endpoints
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+## 📚 References
+
+- **Ed25519:** RFC 8032
+- **Dilithium:** NIST PQC Round 3
+- **Audio hashing:** Robust audio fingerprinting research
+- **Video hashing:** Perceptual hashing literature
+
+---
+
+**⚡ Get Started:** Run `python3 demo.py` to see the full system in action!

@@ -14,6 +14,7 @@ from crypto_signing import HybridSigner, KeyManager
 from hashchain import HashChain
 from perceptual_hash import PerceptualHasher
 from canonicalization import MediaCanonicalizer
+from video_perceptual_hash import VideoPerceptualHasher
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -97,9 +98,44 @@ def create_external_signature(media_file: str, private_key_file: str, output_fil
     if not messages:
         raise ValueError("No windows were successfully processed")
     
+    # Process video keyframes
+    video_messages = []
+    video_signatures = []
+    video_hasher = VideoPerceptualHasher(keyframe_interval=2.0)
+    
+    print("Processing video keyframes...")
+    try:
+        keyframe_hashes = video_hasher.compute_keyframe_hashes(media_path)
+        print(f"Extracted {len(keyframe_hashes)} video keyframes")
+        
+        for i, (frame_idx, phash, timestamp) in enumerate(keyframe_hashes):
+            # Add to chain
+            metadata = {
+                'method': 'external',
+                'frame_index': frame_idx,
+                'timestamp': timestamp,
+                'type': 'video'
+            }
+            chain_message = chain.add_window(i + len(messages), phash, metadata)
+            
+            # Sign the message
+            message_bytes = chain_message.serialize_for_signing()
+            signature = signer.sign_message(message_bytes)
+            
+            # Store results
+            video_messages.append(chain_message.to_dict())
+            video_signatures.append({k: v.hex() for k, v in signature.items()})
+            
+            if (i + 1) % 10 == 0:
+                print(f"  Processed {i + 1}/{len(keyframe_hashes)} keyframes")
+    
+    except Exception as e:
+        print(f"Warning: Video processing failed: {e}")
+        print("Continuing with audio-only signatures...")
+    
     # Create external signature data
     external_data = {
-        'version': '1.0',
+        'version': '2.0',
         'method': 'external',
         'file_hash': file_hash,
         'media_file': media_path.name,
@@ -110,7 +146,10 @@ def create_external_signature(media_file: str, private_key_file: str, output_fil
             'sample_rate': canon_sr,
             'duration': len(canon_audio) / canon_sr,
             'channels': 1
-        }
+        },
+        'video_keyframes': len(video_messages),
+        'video_messages': video_messages,
+        'video_signatures': video_signatures
     }
     
     # Save signature file
@@ -118,7 +157,8 @@ def create_external_signature(media_file: str, private_key_file: str, output_fil
         json.dump(external_data, f, indent=2)
     
     print(f"✅ External signatures saved to: {output_file}")
-    print(f"   Signed {len(messages)} windows")
+    print(f"   Audio: Signed {len(messages)} windows")
+    print(f"   Video: Signed {len(video_messages)} keyframes")
     print(f"   File size: {Path(output_file).stat().st_size / 1024:.1f} KB")
     
     return output_file

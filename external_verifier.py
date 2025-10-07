@@ -14,6 +14,7 @@ from crypto_signing import HybridSigner, KeyManager
 from hashchain import ChainMessage
 from perceptual_hash import PerceptualHasher
 from canonicalization import MediaCanonicalizer
+from video_perceptual_hash import VideoPerceptualHasher
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -37,6 +38,15 @@ def verify_external_signature(media_file: str, signature_file: str, public_key_f
         with open(signature_file, 'r') as f:
             sig_data = json.load(f)
         print(f"Loaded signature data: {len(sig_data['messages'])} windows")
+        
+        # Check version compatibility
+        version = sig_data.get('version', '1.0')
+        if version == '1.0':
+            print("⚠️  Note: Signature version 1.0 (audio-only, no video keyframes)")
+        elif version == '2.0':
+            print(f"✓ Signature version 2.0 (audio + video)")
+        else:
+            print(f"⚠️  Warning: Unknown signature version {version}")
     except Exception as e:
         raise ValueError(f"Failed to load signature file: {e}")
     
@@ -115,25 +125,110 @@ def verify_external_signature(media_file: str, signature_file: str, public_key_f
             print(f"Warning: Failed to verify window {i}: {e}")
             continue
     
+    # Verify video keyframes (if present)
+    video_valid_signatures = 0
+    video_valid_hashes = 0
+    total_video_keyframes = 0
+    
+    if 'video_messages' in sig_data and sig_data['video_messages']:
+        print("\nVerifying video keyframes...")
+        video_hasher = VideoPerceptualHasher(keyframe_interval=2.0)
+        
+        try:
+            # Extract keyframes from current video
+            keyframe_hashes = video_hasher.compute_keyframe_hashes(media_path)
+            print(f"Extracted {len(keyframe_hashes)} keyframes from video")
+            
+            total_video_keyframes = len(sig_data['video_messages'])
+            
+            # Create a dictionary for quick lookup
+            keyframe_dict = {frame_idx: (phash, timestamp) for frame_idx, phash, timestamp in keyframe_hashes}
+            
+            for i, (msg_data, sig_data_item) in enumerate(zip(sig_data['video_messages'], sig_data['video_signatures'])):
+                try:
+                    # Reconstruct message
+                    chain_msg = ChainMessage.from_dict(msg_data)
+                    signature = {k: bytes.fromhex(v) for k, v in sig_data_item.items()}
+                    
+                    # Verify cryptographic signature
+                    message_bytes = chain_msg.serialize_for_signing()
+                    sig_results = signer.verify_signature(message_bytes, signature, public_keys)
+                    signature_valid = signer.is_signature_valid(sig_results)
+                    
+                    if signature_valid:
+                        video_valid_signatures += 1
+                    
+                    # Verify perceptual hash
+                    frame_idx = msg_data['metadata'].get('frame_index', i * 60)  # Estimate if not found
+                    
+                    # Find closest keyframe
+                    if keyframe_dict:
+                        closest_frame_idx = min(keyframe_dict.keys(), key=lambda x: abs(x - frame_idx))
+                        current_hash, _ = keyframe_dict[closest_frame_idx]
+                        
+                        similarity = video_hasher.hash_similarity(current_hash, chain_msg.perceptual_hash)
+                        similarity_info = video_hasher.classify_similarity(similarity)
+                        
+                        # Accept HIGH or better similarity
+                        if similarity_info["level"] in ["EXACT", "HIGH"]:
+                            video_valid_hashes += 1
+                    
+                    if (i + 1) % 10 == 0:
+                        print(f"  Verified {i + 1}/{total_video_keyframes} keyframes")
+                
+                except Exception as e:
+                    print(f"Warning: Failed to verify keyframe {i}: {e}")
+                    continue
+        
+        except Exception as e:
+            print(f"Warning: Video verification failed: {e}")
+    
     # Calculate verification ratios
     sig_ratio = valid_signatures / total_windows if total_windows > 0 else 0
     hash_ratio = valid_hashes / min(total_windows, len(windows)) if min(total_windows, len(windows)) > 0 else 0
     
-    # Determine overall result
-    if sig_ratio >= 0.9 and hash_ratio >= 0.7:
+    video_sig_ratio = video_valid_signatures / total_video_keyframes if total_video_keyframes > 0 else 0
+    video_hash_ratio = video_valid_hashes / total_video_keyframes if total_video_keyframes > 0 else 0
+    
+    # Determine overall result (combine audio and video, or audio-only)
+    if total_video_keyframes > 0:
+        # Both audio and video present - average them
+        overall_sig_ratio = (sig_ratio + video_sig_ratio) / 2
+        overall_hash_ratio = (hash_ratio + video_hash_ratio) / 2
+    else:
+        # Audio-only - use audio scores directly
+        overall_sig_ratio = sig_ratio
+        overall_hash_ratio = hash_ratio
+    
+    # Multi-level confidence classification
+    if overall_sig_ratio >= 0.95 and overall_hash_ratio >= 0.90:
         result = "GREEN"
-        status = "Authentic - Strong verification"
-    elif sig_ratio >= 0.7 and hash_ratio >= 0.5:
+        status = "Authentic - Very High Confidence"
+        confidence = "VERY_HIGH"
+    elif overall_sig_ratio >= 0.90 and overall_hash_ratio >= 0.80:
+        result = "GREEN"
+        status = "Authentic - High Confidence"
+        confidence = "HIGH"
+    elif overall_sig_ratio >= 0.80 and overall_hash_ratio >= 0.70:
+        result = "GREEN"
+        status = "Authentic - Medium Confidence (likely compressed)"
+        confidence = "MEDIUM"
+    elif overall_sig_ratio >= 0.70 and overall_hash_ratio >= 0.60:
         result = "AMBER"
-        status = "Likely authentic - Some verification issues"
+        status = "Possibly Authentic - Low Confidence"
+        confidence = "LOW"
     else:
         result = "RED"
-        status = "Not authentic - Verification failed"
+        status = "Not Authentic - Failed Verification"
+        confidence = "REJECTED"
     
     # Print results
     print(f"\n{result}: {status}")
-    print(f"Signature verification: {valid_signatures}/{total_windows} ({sig_ratio:.1%})")
-    print(f"Perceptual hash verification: {valid_hashes}/{min(total_windows, len(windows))} ({hash_ratio:.1%})")
+    print(f"Audio signature verification: {valid_signatures}/{total_windows} ({sig_ratio:.1%})")
+    print(f"Audio perceptual hash verification: {valid_hashes}/{min(total_windows, len(windows))} ({hash_ratio:.1%})")
+    if total_video_keyframes > 0:
+        print(f"Video signature verification: {video_valid_signatures}/{total_video_keyframes} ({video_sig_ratio:.1%})")
+        print(f"Video perceptual hash verification: {video_valid_hashes}/{total_video_keyframes} ({video_hash_ratio:.1%})")
     print(f"Method: {sig_data.get('method', 'unknown')}")
     print(f"Original file: {sig_data.get('media_file', 'unknown')}")
     
